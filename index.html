@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, nocache, noimageindex">
+  <meta name="googlebot" content="noindex, nofollow, noarchive, nosnippet, nocache, noimageindex">
+  <meta name="bingbot" content="noindex, nofollow, noarchive, nosnippet, nocache, noimageindex">
+  <meta name="slurp" content="noindex, nofollow, noarchive">
+  <meta name="duckduckbot" content="noindex, nofollow">
+  <meta name="baiduspider" content="noindex, nofollow">
+  <meta name="yandexbot" content="noindex, nofollow">
+  <title>Signal Intercept</title>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --bg: #030712;
+      --glass: rgba(15, 23, 42, 0.6);
+      --border: rgba(255, 255, 255, 0.1);
+      --font: 'Share Tech Mono', monospace;
+      
+      /* Colors will shift via JS, these are baselines */
+      --color-bad: #ef4444; /* Red */
+      --color-good: #0ea5e9; /* Cyan */
+      --color-locked: #10b981; /* Green */
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+
+    body {
+      background-color: var(--bg);
+      color: var(--color-bad);
+      font-family: var(--font);
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      /* Subtle CRT scanline effect */
+      background-image: linear-gradient(rgba(0, 0, 0, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+      background-size: 100% 4px, 3px 100%;
+    }
+
+    /* Background noise element */
+    #noise-bg {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      opacity: 0.05;
+      z-index: 0;
+      pointer-events: none;
+      font-size: 1.5rem;
+      word-wrap: break-word;
+      overflow: hidden;
+      color: var(--color-bad);
+      line-height: 1;
+    }
+
+    /* Main Glass Interface */
+    .terminal-card {
+      position: relative;
+      z-index: 10;
+      background: var(--glass);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 3rem;
+      width: 90%;
+      max-width: 700px;
+      text-align: center;
+      box-shadow: 0 0 40px rgba(0,0,0,0.5);
+      transition: box-shadow 0.3s ease, border-color 0.3s ease;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+      letter-spacing: 2px;
+      margin-bottom: 2rem;
+      opacity: 0.7;
+      text-transform: uppercase;
+    }
+
+    .title {
+      font-size: 0.9rem;
+      color: #94a3b8;
+      letter-spacing: 4px;
+      margin-bottom: 1rem;
+    }
+
+    /* The scrambled text container */
+    #decryption-text {
+      font-size: clamp(2rem, 4vw, 3.5rem);
+      font-weight: 400;
+      letter-spacing: 2px;
+      min-height: 120px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      word-break: break-all;
+      text-shadow: 0 0 10px currentColor;
+    }
+
+    /* Signal strength meters */
+    .meters {
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+      margin-top: 2rem;
+    }
+
+    .meter-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .meter-label {
+      font-size: 0.75rem;
+      opacity: 0.6;
+      letter-spacing: 1px;
+    }
+
+    .meter-bar-container {
+      width: 150px;
+      height: 6px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .meter-bar {
+      height: 100%;
+      width: 0%;
+      background: currentColor;
+      transition: width 0.1s linear;
+      box-shadow: 0 0 10px currentColor;
+    }
+
+    /* Custom Crosshair Cursor */
+    #crosshair {
+      position: absolute;
+      width: 40px;
+      height: 40px;
+      border: 1px solid currentColor;
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 100;
+      transform: translate(-50%, -50%);
+      transition: width 0.2s, height 0.2s, opacity 0.2s;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    #crosshair::before, #crosshair::after {
+      content: '';
+      position: absolute;
+      background: currentColor;
+    }
+    #crosshair::before { width: 100%; height: 1px; }
+    #crosshair::after { width: 1px; height: 100%; }
+
+    /* Hide cursor completely */
+    body { cursor: none; }
+    
+    @media (max-width: 600px) {
+      .meters { flex-direction: column; gap: 1rem; align-items: center; }
+      .terminal-card { padding: 2rem 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="noise-bg"></div>
+
+  <div id="crosshair"></div>
+
+  <div class="terminal-card" id="card">
+    <div class="header">
+      <span id="status-label">STATUS: SEARCHING</span>
+      <span id="freq-label">FREQ: 0.000 MHz</span>
+    </div>
+    
+    <div class="title">INCOMING TRANSMISSION</div>
+    
+    <div id="decryption-text">...</div>
+    
+    <div class="meters">
+      <div class="meter-group">
+        <div class="meter-label">SIGNAL CLARITY</div>
+        <div class="meter-bar-container">
+          <div class="meter-bar" id="clarity-bar"></div>
+        </div>
+      </div>
+      <div class="meter-group">
+        <div class="meter-label">DATA INTEGRITY</div>
+        <div class="meter-bar-container">
+          <div class="meter-bar" id="integrity-bar"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- Configuration ---
+    const TARGET_MESSAGE = "AWAITING DIRECTIVES";
+    const GLITCH_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&*!<>{}[]";
+    const LOCK_RADIUS = 30; // How close mouse needs to be to lock (pixels)
+
+    // --- DOM Elements ---
+    const body = document.body;
+    const card = document.getElementById('card');
+    const textEl = document.getElementById('decryption-text');
+    const clarityBar = document.getElementById('clarity-bar');
+    const integrityBar = document.getElementById('integrity-bar');
+    const statusLabel = document.getElementById('status-label');
+    const freqLabel = document.getElementById('freq-label');
+    const crosshair = document.getElementById('crosshair');
+    const noiseBg = document.getElementById('noise-bg');
+
+    // --- State Variables ---
+    let targetX, targetY;
+    let maxDistance;
+    let currentDistance = 0;
+    let signalStrength = 0; // 0 to 1
+    let isLocked = false;
+    let scrambleInterval;
+
+    // --- Initialize Target ---
+    function randomizeTarget() {
+      // Pick a random spot on the screen, keeping it away from the very edges
+      const margin = 100;
+      targetX = margin + Math.random() * (window.innerWidth - margin * 2);
+      targetY = margin + Math.random() * (window.innerHeight - margin * 2);
+      maxDistance = Math.hypot(window.innerWidth, window.innerHeight);
+    }
+    
+    window.addEventListener('resize', randomizeTarget);
+    randomizeTarget();
+
+    // Generate initial background noise
+    function generateNoiseBg() {
+      let noiseStr = '';
+      for(let i=0; i<1000; i++) {
+        noiseStr += GLITCH_CHARS[Math.floor(Math.random() * GLITCH_CHARS.length)];
+      }
+      noiseBg.innerText = noiseStr;
+    }
+    generateNoiseBg();
+
+    // --- Main Logic (Mouse / Touch movement) ---
+    function handleMove(e) {
+      if (isLocked) return;
+
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+      // Update custom cursor
+      crosshair.style.left = `${clientX}px`;
+      crosshair.style.top = `${clientY}px`;
+
+      // Calculate distance to hidden target
+      currentDistance = Math.hypot(targetX - clientX, targetY - clientY);
+      
+      // Convert distance to a signal strength (0.0 to 1.0)
+      // We use a curve (power of 3) so it only gets strong when you get close
+      let rawStrength = 1 - (currentDistance / (maxDistance * 0.5));
+      if (rawStrength < 0) rawStrength = 0;
+      signalStrength = Math.pow(rawStrength, 3); 
+      
+      if (signalStrength > 0.99 || currentDistance < LOCK_RADIUS) {
+        signalStrength = 1;
+      }
+
+      updateUI();
+
+      if (signalStrength === 1) {
+        lockSignal();
+      }
+    }
+
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('touchmove', handleMove, {passive: false});
+
+    // --- Scramble Engine ---
+    function generateScrambledText() {
+      if (isLocked) return;
+
+      let result = "";
+      for (let i = 0; i < TARGET_MESSAGE.length; i++) {
+        // If it's a space in the target, mostly keep it a space unless signal is terrible
+        if (TARGET_MESSAGE[i] === " " && signalStrength > 0.2) {
+          result += " ";
+          continue;
+        }
+
+        // The stronger the signal, the higher the chance to show the real letter
+        if (Math.random() < signalStrength) {
+          result += TARGET_MESSAGE[i];
+        } else {
+          result += GLITCH_CHARS[Math.floor(Math.random() * GLITCH_CHARS.length)];
+        }
+      }
+      textEl.innerText = result;
+      
+      // Also slightly jitter the background noise
+      if (Math.random() > 0.8) {
+         noiseBg.innerText = noiseBg.innerText.substring(1) + GLITCH_CHARS[Math.floor(Math.random() * GLITCH_CHARS.length)];
+      }
+    }
+
+    // Run the scrambler incredibly fast
+    scrambleInterval = setInterval(generateScrambledText, 40);
+
+    // --- UI Updater ---
+    function updateUI() {
+      // Update bars
+      clarityBar.style.width = `${signalStrength * 100}%`;
+      integrityBar.style.width = `${(signalStrength * 100) + (Math.random() * 10 - 5)}%`; // Slight jitter
+      
+      // Update fake freq label
+      freqLabel.innerText = `FREQ: ${(104.5 + signalStrength * 10).toFixed(3)} MHz`;
+
+      // Interpolate colors based on signal strength
+      // Bad: Red (239, 68, 68) -> Good: Cyan (14, 165, 233)
+      const r = Math.floor(239 - (225 * signalStrength));
+      const g = Math.floor(68 + (97 * signalStrength));
+      const b = Math.floor(68 + (165 * signalStrength));
+      
+      const currentColor = `rgb(${r}, ${g}, ${b})`;
+      body.style.color = currentColor;
+      
+      // Make crosshair shrink as you get closer
+      const crosshairSize = 60 - (20 * signalStrength);
+      crosshair.style.width = `${crosshairSize}px`;
+      crosshair.style.height = `${crosshairSize}px`;
+      
+      // Glow effect on card increases as you get closer
+      card.style.boxShadow = `0 0 ${20 + (signalStrength * 40)}px rgba(${r}, ${g}, ${b}, 0.3)`;
+      card.style.borderColor = `rgba(${r}, ${g}, ${b}, ${0.1 + (signalStrength * 0.4)})`;
+    }
+
+    // --- Win State ---
+    function lockSignal() {
+      isLocked = true;
+      clearInterval(scrambleInterval);
+      
+      // Final UI state
+      textEl.innerText = TARGET_MESSAGE;
+      body.style.color = 'var(--color-locked)';
+      clarityBar.style.width = "100%";
+      integrityBar.style.width = "100%";
+      statusLabel.innerText = "STATUS: SECURED";
+      noiseBg.style.opacity = 0; // Clear the static
+      
+      crosshair.style.transform = "translate(-50%, -50%) rotate(45deg) scale(1.5)";
+      crosshair.style.opacity = 0; // Hide crosshair
+      
+      card.style.boxShadow = "0 0 60px rgba(16, 185, 129, 0.4)";
+      card.style.borderColor = "rgba(16, 185, 129, 0.8)";
+      
+      // Optional: Add a button to reset and play again
+      setTimeout(() => {
+        const btn = document.createElement('button');
+        btn.innerText = "RESET CONNECTION";
+        btn.style.cssText = `
+          margin-top: 2rem;
+          background: transparent;
+          border: 1px solid currentColor;
+          color: currentColor;
+          padding: 10px 20px;
+          font-family: inherit;
+          cursor: pointer;
+          border-radius: 4px;
+        `;
+        btn.onclick = () => location.reload();
+        card.appendChild(btn);
+        body.style.cursor = 'default';
+      }, 2000);
+    }
+  </script>
+</body>
+</html>
